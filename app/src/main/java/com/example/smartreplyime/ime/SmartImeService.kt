@@ -1,11 +1,15 @@
 package com.example.smartreplyime.ime
 
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
-import android.widget.Button
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -19,7 +23,7 @@ import com.example.smartreplyime.engine.RuleStore
  * - 中文模式：全拼输入，候选栏出字，数字键/点击选字
  * - 英文模式：直接上屏，本地短语联想
  * - AI回复：基于对方最新消息（无障碍服务抓取）生成建议
- * 适配：键盘行全部 weight 布局，自动拉伸适配任意屏宽；尺寸按屏幕密度换算 dp
+ * 键盘为 Canvas 自绘，不依赖系统 Button 渲染，任何 ROM 上表现一致。
  */
 class SmartImeService : InputMethodService() {
 
@@ -34,7 +38,8 @@ class SmartImeService : InputMethodService() {
     private lateinit var composingView: TextView
     private lateinit var candidateRow: LinearLayout
     private lateinit var statusView: TextView
-    private lateinit var modeBtn: Button
+    private lateinit var modeBtn: TextView
+    private lateinit var keyboardView: KeyboardView
 
     // 配色（简约浅色系）
     private val cBg = 0xFFECECF1.toInt()
@@ -61,22 +66,10 @@ class SmartImeService : InputMethodService() {
             setPadding(dp(6), dp(4), dp(6), dp(2))
         }
 
-        modeBtn = Button(this).apply {
-            text = "中"
-            textSize = 14f
-            setTextColor(0xFFFFFFFF.toInt())
-            setBackgroundColor(cAccent)
-            setOnClickListener { toggleMode() }
-        }
+        modeBtn = chip("中") { toggleMode() }
         topBar.addView(modeBtn, LinearLayout.LayoutParams(dp(52), dp(38)))
 
-        val aiBtn = Button(this).apply {
-            text = "AI回复"
-            textSize = 13f
-            setTextColor(0xFFFFFFFF.toInt())
-            setBackgroundColor(cAccent)
-            setOnClickListener { showSmartReplies() }
-        }
+        val aiBtn = chip("AI回复") { showSmartReplies() }
         val aiLp = LinearLayout.LayoutParams(dp(88), dp(38))
         aiLp.marginStart = dp(6)
         topBar.addView(aiBtn, aiLp)
@@ -108,52 +101,41 @@ class SmartImeService : InputMethodService() {
         scroll.addView(candidateRow)
         root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        // ===== 键盘（weight 布局，自动适配屏宽） =====
-        fun row(vararg keys: Pair<String, () -> Unit>) {
-            val line = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                setPadding(dp(3), 0, dp(3), 0)
-            }
-            root.addView(line, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-            keys.forEach { (label, action) ->
-                val b = Button(this).apply {
-                    text = label
-                    textSize = if (label.length == 1) 16f else 13f
-                    setTextColor(cKeyText)
-                    setBackgroundColor(cKey)
-                    setOnClickListener { action() }
-                }
-                val lp = LinearLayout.LayoutParams(0, dp(46), 1f)
-                lp.setMargins(dp(2), dp(2), dp(2), dp(2))
-                line.addView(b, lp)
-            }
+        // ===== 自绘键盘 =====
+        keyboardView = KeyboardView(this).apply {
+            addRow(*(0..9).map { i ->
+                KeySpec(i.toString()) { if (modeEn || i == 0) typeEn(i.toString()) else pickNumber(i) }
+            }.toTypedArray())
+
+            fun letters(s: String) = addRow(*s.map { c ->
+                KeySpec(c.toString()) { if (modeEn) typeEn(c.toString()) else typePinyin(c.toString()) }
+            }.toTypedArray())
+
+            letters("qwertyuiop")
+            letters("asdfghjkl")
+            letters("zxcvbnm")
+
+            addRow(
+                KeySpec("退格", smallText = true) { backspace() },
+                KeySpec("空格", smallText = true) { spaceKey() },
+                KeySpec("，") { punctKey("，") },
+                KeySpec("。") { punctKey("。") },
+                KeySpec("？") { punctKey("？") },
+                KeySpec("发送", smallText = true) { send() }
+            )
         }
-
-        // 数字行（中文模式下作为候选快选键 1-9，0 保留）
-        row(*(0..9).map { i ->
-            i.toString() to { if (modeEn || i == 0) typeEn(i.toString()) else pickNumber(i) }
-        }.toTypedArray())
-
-        // 字母行
-        fun letterRow(s: String) = row(*s.map { c ->
-            c.toString() to { if (modeEn) typeEn(c.toString()) else typePinyin(c.toString()) }
-        }.toTypedArray())
-
-        letterRow("qwertyuiop")
-        letterRow("asdfghjkl")
-        letterRow("zxcvbnm")
-
-        // 功能行
-        row(
-            "退格" to { backspace() },
-            "空格" to { spaceKey() },
-            "，" to { punctKey("，") },
-            "。" to { punctKey("。") },
-            "？" to { punctKey("？") },
-            "发送" to { send() }
-        )
+        root.addView(keyboardView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         return root
+    }
+
+    private fun chip(label: String, onClick: () -> Unit) = TextView(this).apply {
+        text = label
+        textSize = 14f
+        setTextColor(0xFFFFFFFF.toInt())
+        setBackgroundColor(cAccent)
+        gravity = Gravity.CENTER
+        setOnClickListener { onClick() }
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
@@ -285,7 +267,7 @@ class SmartImeService : InputMethodService() {
 
     private fun showSmartReplies() {
         if (pinyinBuf.isNotEmpty()) spaceKey()
-        val msg = ChatCaptureService.lastMessage
+        val msg = ChatCaptureService.captureNow() ?: ChatCaptureService.lastMessage
         statusView.text = if (msg != null) "  对方: ${msg.take(16)}" else "  未开启消息读取，使用通用建议"
         val suggestions = ReplyEngine.smartReply(msg ?: "")
         showCandidates(suggestions) { idx ->
@@ -314,4 +296,121 @@ class SmartImeService : InputMethodService() {
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    // ========== 自绘键盘 ==========
+
+    private inner class KeyboardView(ctx: android.content.Context) : View(ctx) {
+
+        class KeySpec(
+            val label: String,
+            val smallText: Boolean = false,
+            val weight: Float = 1f,
+            val action: () -> Unit
+        )
+
+        private val rows = mutableListOf<List<KeySpec>>()
+
+        private var pressedRow = -1
+        private var pressedCol = -1
+
+        private val bgPaint = Paint().apply { color = cBg }
+        private val keyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = cKey }
+        private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = cKeyText
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.DEFAULT
+        }
+
+        private val keyH get() = dp(46)
+        private val gap get() = dp(4)
+        private val padSide get() = dp(3)
+
+        fun addRow(vararg keys: KeySpec) {
+            rows.add(keys.toList())
+        }
+
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val w = MeasureSpec.getSize(widthMeasureSpec)
+            val h = gap + rows.size * (keyH + gap)
+            setMeasuredDimension(w, h)
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
+            var top = gap.toFloat()
+            for (r in rows.indices) {
+                val row = rows[r]
+                val unit = unitWidth(row)
+                var left = padSide.toFloat()
+                for (c in row.indices) {
+                    val key = row[c]
+                    val kw = unit * key.weight
+                    val rect = RectF(left, top, left + kw, top + keyH)
+                    val pressedNow = (r == pressedRow && c == pressedCol)
+                    keyPaint.color = if (pressedNow) cChip else cKey
+                    canvas.drawRoundRect(rect, dp(6).toFloat(), dp(6).toFloat(), keyPaint)
+                    textPaint.textSize = (if (key.smallText) dp(14) else dp(19)).toFloat()
+                    val fm = textPaint.fontMetrics
+                    val baseline = rect.centerY() - (fm.ascent + fm.descent) / 2f
+                    canvas.drawText(key.label, rect.centerX(), baseline, textPaint)
+                    left += kw + gap
+                }
+                top += keyH + gap
+            }
+        }
+
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    val hit = locate(event.x, event.y) ?: return true
+                    setPressed(hit.first, hit.second)
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val hit = locate(event.x, event.y)
+                    if (hit == null) setPressed(-1, -1)
+                    else if (hit.first != pressedRow || hit.second != pressedCol) setPressed(hit.first, hit.second)
+                }
+                MotionEvent.ACTION_UP -> {
+                    val hit = locate(event.x, event.y)
+                    setPressed(-1, -1)
+                    if (hit != null) rows[hit.first][hit.second].action()
+                    performClick()
+                }
+                MotionEvent.ACTION_CANCEL -> setPressed(-1, -1)
+            }
+            return true
+        }
+
+        override fun performClick(): Boolean {
+            super.performClick()
+            return true
+        }
+
+        private fun setPressed(r: Int, c: Int) {
+            if (r != pressedRow || c != pressedCol) {
+                pressedRow = r; pressedCol = c
+                invalidate()
+            }
+        }
+
+        private fun unitWidth(row: List<KeySpec>): Float {
+            val total = width - padSide * 2 - gap * (row.size - 1)
+            return total / row.sumOf { it.weight.toDouble() }.toFloat()
+        }
+
+        private fun locate(x: Float, y: Float): Pair<Int, Int>? {
+            val r = ((y - gap) / (keyH + gap)).toInt()
+            if (r < 0 || r >= rows.size) return null
+            if (y > gap + r * (keyH + gap) + keyH) return null
+            val row = rows[r]
+            val unit = unitWidth(row)
+            var left = padSide.toFloat()
+            for (c in row.indices) {
+                val kw = unit * row[c].weight
+                if (x >= left && x <= left + kw) return r to c
+                left += kw + gap
+            }
+            return null
+        }
+    }
 }
