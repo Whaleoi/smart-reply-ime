@@ -23,14 +23,21 @@ jobs:
           unzip -q /tmp/gradle.zip -d /opt
           echo "/opt/gradle-8.9/bin" >> "$GITHUB_PATH"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install SDK components
         run: |
-          export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin"
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platforms;android-34" "build-tools;34.0.0"
+          export ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -1)
+          if [ -z "$SDKMANAGER" ]; then
+            echo "sdkmanager not found, downloading command line tools..."
+            mkdir -p "$ANDROID_HOME/cmdline-tools"
+            curl -sL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/cmd.zip
+            unzip -q /tmp/cmd.zip -d /tmp
+            mv /tmp/cmdline-tools "$ANDROID_HOME/cmdline-tools/latest"
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          echo "Using sdkmanager: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Build Debug APK
         run: gradle assembleDebug --no-daemon --stacktrace
