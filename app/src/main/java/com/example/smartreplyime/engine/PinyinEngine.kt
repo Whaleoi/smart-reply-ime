@@ -451,13 +451,11 @@ dengni=等你
     init {
         val chars = mutableMapOf<String, List<String>>()
         val words = mutableMapOf<String, List<String>>()
-        for (line in CHAR_TABLE.trim().split("
-")) {
+        for (line in CHAR_TABLE.trim().split("\n")) {
             val parts = line.split("=", limit = 2)
             if (parts.size == 2) chars[parts[0].trim()] = parts[1].trim().map { it.toString() }
         }
-        for (line in WORD_TABLE.trim().split("
-")) {
+        for (line in WORD_TABLE.trim().split("\n")) {
             val parts = line.split("=", limit = 2)
             if (parts.size == 2) words[parts[0].trim()] =
                 parts[1].trim().split("，", ",").map { it.trim() }.filter { it.isNotEmpty() }
