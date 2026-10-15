@@ -18,6 +18,14 @@ import com.example.smartreplyime.engine.PinyinEngine
 import com.example.smartreplyime.engine.ReplyEngine
 import com.example.smartreplyime.engine.RuleStore
 
+/** 键盘按键定义：label=显示文字， smallText=小号字， weight=宽度权重， action=点击动作 */
+private class KeySpec(
+    val label: String,
+    val smallText: Boolean = false,
+    val weight: Float = 1f,
+    val action: () -> Unit
+)
+
 /**
  * 智能回复输入法（简约版）
  * - 中文模式：全拼输入，候选栏出字，数字键/点击选字
@@ -300,13 +308,6 @@ class SmartImeService : InputMethodService() {
     // ========== 自绘键盘 ==========
 
     private inner class KeyboardView(ctx: android.content.Context) : View(ctx) {
-
-        class KeySpec(
-            val label: String,
-            val smallText: Boolean = false,
-            val weight: Float = 1f,
-            val action: () -> Unit
-        )
 
         private val rows = mutableListOf<List<KeySpec>>()
 
